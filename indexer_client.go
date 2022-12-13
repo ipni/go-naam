@@ -80,7 +80,7 @@ func (n *Naam) announce(ctx context.Context, ai *peer.AddrInfo, head cid.Cid) er
 	return nil
 }
 
-func (n *Naam) getNaamMetadata(ctx context.Context, mh multihash.Multihash) ([]byte, error) {
+func (n *Naam) getNaamMetadata(ctx context.Context, pid peer.ID, mh multihash.Multihash) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, n.httpIndexerEndpoint+"/multihash/"+mh.B58String(), nil)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (n *Naam) getNaamMetadata(ctx context.Context, mh multihash.Multihash) ([]b
 	for _, mhr := range r.MultihashResults {
 		if bytes.Equal(mhr.Multihash, mh) {
 			for _, pr := range mhr.ProviderResults {
-				if bytes.Equal(pr.ContextID, ContextID) {
+				if pr.Provider.ID == pid && bytes.Equal(pr.ContextID, ContextID) {
 					return pr.Metadata, nil
 				}
 			}

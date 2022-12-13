@@ -81,7 +81,7 @@ func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err e
 		if err != nil {
 			return "", err
 		}
-		metadata, err = n.getNaamMetadata(ctx, mh)
+		metadata, err = n.getNaamMetadata(ctx, pid, mh)
 		if err != nil {
 			return "", err
 		}
