@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	MetadataProtocolID = multicodec.IpnsNs
+	MetadataProtocolID = multicodec.IpnsRecord
 	ContextID          = []byte("/ipni/naam")
 
 	ls = cidlink.LinkPrototype{
