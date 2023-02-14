@@ -13,7 +13,7 @@ require (
 	github.com/ipld/go-ipld-prime v0.19.0
 	github.com/libp2p/go-libp2p v0.23.2
 	github.com/multiformats/go-multiaddr v0.7.0
-	github.com/multiformats/go-multicodec v0.8.1-0.20230213032630-4417274e57d3
+	github.com/multiformats/go-multicodec v0.8.1
 	github.com/multiformats/go-multihash v0.2.1
 	github.com/multiformats/go-varint v0.0.6
 )
