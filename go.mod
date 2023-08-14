@@ -1,6 +1,6 @@
 module github.com/ipni/go-naam
 
-go 1.19
+go 1.20
 
 require (
 	github.com/filecoin-project/storetheindex v0.5.2
