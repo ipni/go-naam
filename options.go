@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/filecoin-project/storetheindex/dagsync"
-	"github.com/filecoin-project/storetheindex/dagsync/httpsync"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
@@ -15,20 +13,25 @@ import (
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/linking"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/ipni/go-libipni/dagsync"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
+const defaultIndexerURL = "https://cid.contact"
+
 type (
 	Option  func(*options) error
 	options struct {
-		h                   host.Host
-		httpListenAddr      string
-		httpIndexerEndpoint string
-		httpClient          *http.Client
-		ls                  *ipld.LinkSystem
-		ds                  datastore.Datastore
-		pub                 dagsync.Publisher
+		h              host.Host
+		httpListenAddr string
+		httpIndexerURL string
+		httpFindURL    string
+		httpClient     *http.Client
+		ls             *ipld.LinkSystem
+		ds             datastore.Datastore
+		pub            dagsync.Publisher
+		readPriv       bool
 	}
 
 	PublishOption  func(*publishOptions) error
@@ -41,10 +44,11 @@ type (
 
 func newOptions(o ...Option) (*options, error) {
 	opts := options{
-		h:                   nil,
-		httpListenAddr:      "0.0.0.0:8080",
-		httpIndexerEndpoint: "https://cid.contact",
-		httpClient:          http.DefaultClient,
+		h:              nil,
+		httpIndexerURL: defaultIndexerURL,
+		httpListenAddr: "0.0.0.0:8080",
+		httpClient:     http.DefaultClient,
+		readPriv:       true,
 	}
 	for _, apply := range o {
 		if err := apply(&opts); err != nil {
@@ -80,14 +84,15 @@ func newOptions(o ...Option) (*options, error) {
 		}
 		opts.ls = &ls
 	}
-	pk := opts.h.Peerstore().PrivKey(opts.h.ID())
-	opts.pub, err = httpsync.NewPublisher(opts.httpListenAddr, *opts.ls, opts.h.ID(), pk)
-	if err != nil {
-		return nil, err
+
+	if opts.httpFindURL == "" {
+		opts.httpFindURL = opts.httpIndexerURL
 	}
+
 	return &opts, nil
 }
 
+// WithHost supplies a libp2p Host. If not specified a new Host is created.
 func WithHost(h host.Host) Option {
 	return func(o *options) error {
 		o.h = h
@@ -95,20 +100,45 @@ func WithHost(h host.Host) Option {
 	}
 }
 
+// WithHttpListenAddr specifies the listen address of the HTTP server that
+// serves IPNI addresses. If not specified, the default "0.0.0.0:8080" is used.
 func WithHttpListenAddr(a string) Option {
 	return func(o *options) error {
-		o.httpListenAddr = a
+		if a != "" {
+			o.httpListenAddr = a
+		}
 		return nil
 	}
 }
 
-func WithHttpIndexerEndpoint(a string) Option {
+// WithHttpIndexerURL configures the indexer base URL for sending announce
+// messages to. This URL is also used for metadata lookup. If a different
+// URL is needed for lookup, specify using WithHttpFindURL. If no values
+// are specified, then defaultIndexerURL is used.
+func WithHttpIndexerURL(a string) Option {
 	return func(o *options) error {
-		o.httpIndexerEndpoint = a
+		if a != "" {
+			o.httpIndexerURL = a
+		}
 		return nil
 	}
 }
 
+// WithHttpFindURL configures the base URL use for lookups. Use this when the
+// lookup URL is different from the ingest URL configured by
+// WithHttpIndexerURL. This may be needed when the lookup URL has a different
+// port or is a dhstore URL.
+func WithHttpFindURL(a string) Option {
+	return func(o *options) error {
+		if a != "" {
+			o.httpFindURL = a
+		}
+		return nil
+	}
+}
+
+// WithHttpClient supplies an optional HTTP client. If not specified, the
+// default client is used.
 func WithHttpClient(c *http.Client) Option {
 	return func(o *options) error {
 		o.httpClient = c
@@ -126,6 +156,15 @@ func WithLinkSystem(ls *ipld.LinkSystem) Option {
 func WithDatastore(ds datastore.Datastore) Option {
 	return func(o *options) error {
 		o.ds = ds
+		return nil
+	}
+}
+
+// WithReaderPrivacy enables (true) or disables (false) reader-privacy. This is
+// enabled by default.
+func WithReaderPrivacy(enabled bool) Option {
+	return func(o *options) error {
+		o.readPriv = enabled
 		return nil
 	}
 }

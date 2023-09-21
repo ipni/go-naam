@@ -3,25 +3,31 @@ package naam
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
-	"github.com/filecoin-project/storetheindex/api/v0/ingest/schema"
-	"github.com/gogo/protobuf/proto"
+	"github.com/ipfs/boxo/ipns"
+	"github.com/ipfs/boxo/path"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-ipns"
-	ipns_pb "github.com/ipfs/go-ipns/pb"
-	"github.com/ipfs/go-path"
 	"github.com/ipld/go-ipld-prime"
 	_ "github.com/ipld/go-ipld-prime/codec/dagcbor"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/ipni/go-libipni/announce"
+	"github.com/ipni/go-libipni/announce/httpsender"
+	"github.com/ipni/go-libipni/dagsync/ipnisync"
+	"github.com/ipni/go-libipni/find/client"
+	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/multiformats/go-varint"
 )
+
+// ErrNotFound is returned when naam fails to find the requested IPNS record.
+var ErrNotFound = errors.New("naam: not found")
 
 var (
 	MetadataProtocolID = multicodec.IpnsRecord
@@ -29,8 +35,9 @@ var (
 
 	ls = cidlink.LinkPrototype{
 		Prefix: cid.Prefix{
-			Version:  1,
-			Codec:    uint64(multicodec.DagCbor),
+			Version: 1,
+			//Codec:    uint64(multicodec.DagCbor),
+			Codec:    uint64(multicodec.DagJson),
 			MhType:   uint64(multicodec.Sha2_256),
 			MhLength: -1,
 		},
@@ -42,57 +49,115 @@ var (
 
 type Naam struct {
 	*options
+	httpAnnouncer *httpsender.Sender
 }
 
+// New creates a new Naam instance for publishing IPNS records in an indexer.
 func New(o ...Option) (*Naam, error) {
 	opts, err := newOptions(o...)
 	if err != nil {
 		return nil, err
 	}
+
+	// Create publisher that publishes over http and libptp.
+	pk := opts.h.Peerstore().PrivKey(opts.h.ID())
+	opts.pub, err = ipnisync.NewPublisher(*opts.ls, pk,
+		ipnisync.WithHTTPListenAddrs(opts.httpListenAddr),
+		ipnisync.WithStreamHost(opts.h),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	indexerURL, err := url.Parse(opts.httpIndexerURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a direct http announcement sender.
+	httpAnnouncer, err := httpsender.New([]*url.URL{indexerURL}, opts.h.ID(),
+		httpsender.WithClient(opts.httpClient))
+	if err != nil {
+		return nil, err
+	}
+
 	return &Naam{
-		options: opts,
+		options:       opts,
+		httpAnnouncer: httpAnnouncer,
 	}, nil
 }
 
+// Name returns the key to lookup the IPNS record for the given peer ID.
+func Name(peerID peer.ID) string {
+	return ipns.NamespacePrefix + peerID.String()
+}
+
+// Resolve performs a reader-privacy-enabled indexer lookup of the name and
+// returns the IPFS path identified by the name. The multihash lookup request
+// is sent to the host specified in findURL.
+func Resolve(ctx context.Context, name string, findURL string) (value path.Path, err error) {
+	finder, err := client.NewDHashClient(
+		client.WithDHStoreURL(findURL),
+		client.WithMetadataOnly(true))
+	if err != nil {
+		return "", err
+	}
+	return resolve(ctx, name, finder)
+}
+
+// Resolve performs an indexer lookup of the name, without reader privacy, and
+// returns the IPFS path identified by the name. The multihash lookup request
+// is sent to the host specified by findURL.
+func ResolveNotPrivate(ctx context.Context, name string, findURL string) (value path.Path, err error) {
+	finder, err := client.New(findURL)
+	if err != nil {
+		return "", err
+	}
+	return resolve(ctx, name, finder)
+}
+
+// Name returns the key to lookup the IPNS record published by this Naam
+// instance.
+func (n *Naam) Name() string {
+	return Name(n.h.ID())
+}
+
+// Resolve returns the IPFS path identified by the specified name.
+//
+// If name matches that of this Naam instance, it is fetched from the local
+// datastore. Otherwise, Resolve performs an indexer lookup of the name.
+// Reader-privacy is enabled by default unless the option
+// WithReaderPrivacy(false) was specified.
+//
+// If doing an indexer lookup, the multihash lookup request is sent to the host
+// specified in the WithHttpFindURL option, or if not specified, then in
+// WithHttpIndexerURL.
 func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err error) {
 	p, err := path.ParsePath(name)
-	switch {
-	case err != nil:
+	if err != nil {
 		// Given name is not a valid IPFS path.
 		return "", err
-	case p.IsJustAKey():
+	}
+	if p.IsJustAKey() {
 		// IPFS path constructed from name is already resolved; nothing to do.
 		return p, nil
 	}
 
-	spid := strings.TrimPrefix("/ipns/", p.String())
-	if spid == p.String() {
-		// Missing `/ipns/` prefix.
-		return "", ipns.ErrInvalidPath
-	}
-	pid, err := peer.Decode(spid)
+	pid, err := peerIDFromName(name)
 	if err != nil {
 		return "", err
 	}
 
 	var metadata []byte
-	if pid != n.h.ID() {
-		mh, err := multihash.Sum([]byte(pid), multihash.SHA2_256, -1)
-		if err != nil {
-			return "", err
-		}
-		metadata, err = n.getNaamMetadata(ctx, pid, mh)
-		if err != nil {
-			return "", err
-		}
-	} else {
+	if pid == n.h.ID() {
+		// This is the ID of this host, so load advertisement from storage.
 		head, err := n.getHeadAdCid(ctx)
 		if err != nil {
 			return "", err
 		}
 		if head == cid.Undef {
 			// TODO return a better error?
-			return "", routing.ErrNotFound
+			return "", ErrNotFound
 		}
 
 		n, err := n.ls.Load(ipld.LinkContext{Ctx: ctx}, cidlink.Link{Cid: head}, schema.AdvertisementPrototype)
@@ -104,21 +169,88 @@ func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err e
 			return "", err
 		}
 		metadata = advertisement.Metadata
+	} else {
+		var finder client.Finder
+		if n.readPriv {
+			finder, err = client.NewDHashClient(
+				client.WithClient(n.httpClient),
+				client.WithDHStoreURL(n.httpFindURL),
+				client.WithMetadataOnly(true))
+		} else {
+			finder, err = client.New(n.httpFindURL, client.WithClient(n.httpClient))
+		}
+		if err != nil {
+			return "", err
+		}
+
+		// Lookup metadata using indexer.
+		metadata, err = lookupNaamMetadata(ctx, pid, finder)
+		if err != nil {
+			return "", err
+		}
 	}
-	entry, err := ipnsFromMetadata(metadata)
-	if err != nil {
-		return "", err
-	}
-	pubk, err := ipns.ExtractPublicKey(pid, entry)
-	if err != nil {
-		return "", err
-	}
-	if err := ipns.Validate(pubk, entry); err != nil {
-		return "", err
-	}
-	return path.ParsePath(string(entry.Value))
+
+	return metadataToPath(metadata)
 }
 
+func resolve(ctx context.Context, name string, finder client.Finder) (value path.Path, err error) {
+	p, err := path.ParsePath(name)
+	if err != nil {
+		// Given name is not a valid IPFS path.
+		return "", err
+	}
+	if p.IsJustAKey() {
+		// IPFS path constructed from name is already resolved; nothing to do.
+		return p, nil
+	}
+
+	pid, err := peerIDFromName(name)
+	if err != nil {
+		return "", err
+	}
+
+	// Lookup metadata using indexer.
+	metadata, err := lookupNaamMetadata(ctx, pid, finder)
+	if err != nil {
+		return "", err
+	}
+
+	return metadataToPath(metadata)
+}
+
+func peerIDFromName(name string) (peer.ID, error) {
+	spid := strings.TrimPrefix(name, ipns.NamespacePrefix)
+	if spid == name {
+		// Missing `/ipns/` prefix.
+		return "", ipns.ErrInvalidName
+	}
+	return peer.Decode(spid)
+}
+
+func metadataToPath(metadata []byte) (value path.Path, err error) {
+	ipnsRec, err := ipnsFromMetadata(metadata)
+	if err != nil {
+		return "", err
+	}
+
+	pubk, err := ipnsRec.PubKey()
+	if err != nil {
+		return "", err
+	}
+	if err = ipns.Validate(ipnsRec, pubk); err != nil {
+		return "", err
+	}
+
+	return ipnsRec.Value()
+}
+
+// Publish creates a new IPNI advertisement containing an IPNS record for the
+// given path value and a multihash key for the peer. The advertisement is
+// published to the configured indexer.
+//
+// This allows the peer multihash to lookup an IPNS record using an IPNI
+// indexer. The IPNS record is then resolved to the path that was published in
+// the IPNI advertisement.
 func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption) error {
 	opts, err := newPublishOptions(o...)
 	if err != nil {
@@ -129,7 +261,8 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	head, err := n.getHeadAdCid(ctx)
 	if err != nil {
 		return err
-	} else if head != cid.Undef {
+	}
+	if head != cid.Undef {
 		prevLink = cidlink.Link{Cid: head}
 	}
 
@@ -139,24 +272,15 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	}
 	seq := prevHeight + 1
 
-	pk := n.h.Peerstore().PrivKey(n.h.ID())
-	entry, err := ipns.Create(pk, []byte(value), seq, opts.eol, opts.ttl)
-	if err != nil {
-		return err
-	}
-	if opts.embedPubKey {
-		if err := ipns.EmbedPublicKey(pk.GetPublic(), entry); err != nil {
-			return err
-		}
-	}
-
-	pid, err := peer.IDFromPrivateKey(pk)
+	pid := n.h.ID()
+	pk := n.h.Peerstore().PrivKey(pid)
+	ipnsRec, err := ipns.NewRecord(pk, value, seq, opts.eol, opts.ttl, ipns.WithPublicKey(opts.embedPubKey))
 	if err != nil {
 		return err
 	}
 
-	key := ipns.RecordKey(pid)
-	mh, err := multihash.Sum([]byte(key), multihash.SHA2_256, -1)
+	// Store entry block.
+	mh, err := multihash.Sum([]byte(pid), multihash.SHA2_256, -1)
 	if err != nil {
 		return err
 	}
@@ -172,7 +296,7 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 		return err
 	}
 
-	metadata, err := ipnsMetadata(entry)
+	metadata, err := ipnsMetadata(ipnsRec)
 	if err != nil {
 		return err
 	}
@@ -198,18 +322,16 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	}
 
 	newHead := adLink.(cidlink.Link).Cid
-	if err := n.pub.UpdateRoot(ctx, newHead); err != nil {
-		return err
-	}
-
+	n.pub.SetRoot(newHead)
 	if err := n.setHeadAdCid(ctx, newHead); err != nil {
 		return err
 	}
-	ai := &peer.AddrInfo{
-		ID:    n.h.ID(),
-		Addrs: n.pub.Addrs(),
+
+	err = announce.Send(ctx, newHead, n.pub.Addrs(), n.httpAnnouncer)
+	if err != nil {
+		return fmt.Errorf("unsuccessful announce: %w", err)
 	}
-	return n.announce(ctx, ai, newHead)
+	return nil
 }
 
 func (n *Naam) adAddrs() []string {
@@ -235,6 +357,9 @@ func (n *Naam) setHeadAdCid(ctx context.Context, head cid.Cid) error {
 func (n *Naam) previousHeight(ctx context.Context) (uint64, error) {
 	v, err := n.ds.Get(ctx, height)
 	if err != nil {
+		if err == datastore.ErrNotFound {
+			return 0, nil
+		}
 		return 0, err
 	}
 	buf := bytes.NewBuffer(v)
@@ -243,8 +368,11 @@ func (n *Naam) previousHeight(ctx context.Context) (uint64, error) {
 
 func (n *Naam) getHeadAdCid(ctx context.Context) (cid.Cid, error) {
 	c, err := n.ds.Get(ctx, headAdCid)
-	if err == datastore.ErrNotFound {
-		return cid.Undef, nil
+	if err != nil {
+		if err == datastore.ErrNotFound {
+			return cid.Undef, nil
+		}
+		return cid.Undef, err
 	}
 	_, head, err := cid.CidFromBytes(c)
 	if err != nil {
@@ -253,10 +381,10 @@ func (n *Naam) getHeadAdCid(ctx context.Context) (cid.Cid, error) {
 	return head, nil
 }
 
-func ipnsMetadata(entry *ipns_pb.IpnsEntry) ([]byte, error) {
+func ipnsMetadata(rec *ipns.Record) ([]byte, error) {
 	var metadata bytes.Buffer
 	metadata.Write(varint.ToUvarint(uint64(MetadataProtocolID)))
-	marshal, err := proto.Marshal(entry)
+	marshal, err := ipns.MarshalRecord(rec)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +392,7 @@ func ipnsMetadata(entry *ipns_pb.IpnsEntry) ([]byte, error) {
 	return metadata.Bytes(), nil
 }
 
-func ipnsFromMetadata(md []byte) (*ipns_pb.IpnsEntry, error) {
+func ipnsFromMetadata(md []byte) (*ipns.Record, error) {
 	buf := bytes.NewBuffer(md)
 	protoID, err := varint.ReadUvarint(buf)
 	if err != nil {
@@ -273,9 +401,31 @@ func ipnsFromMetadata(md []byte) (*ipns_pb.IpnsEntry, error) {
 	if protoID != uint64(MetadataProtocolID) {
 		return nil, fmt.Errorf("expected protocol ID %d but got %d", MetadataProtocolID, protoID)
 	}
-	var entry ipns_pb.IpnsEntry
-	if err := proto.Unmarshal(buf.Bytes(), &entry); err != nil {
+
+	return ipns.UnmarshalRecord(buf.Bytes())
+}
+
+func lookupNaamMetadata(ctx context.Context, pid peer.ID, finder client.Finder) ([]byte, error) {
+	mh, err := multihash.Sum([]byte(pid), multihash.SHA2_256, -1)
+	if err != nil {
 		return nil, err
 	}
-	return &entry, nil
+
+	resp, err := finder.Find(ctx, mh)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp != nil {
+		for _, mhr := range resp.MultihashResults {
+			if bytes.Equal(mhr.Multihash, mh) {
+				for _, pr := range mhr.ProviderResults {
+					if pr.Provider.ID == pid && bytes.Equal(pr.ContextID, ContextID) {
+						return pr.Metadata, nil
+					}
+				}
+			}
+		}
+	}
+	return nil, ErrNotFound
 }
