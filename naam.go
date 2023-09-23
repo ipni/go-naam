@@ -105,9 +105,9 @@ func Resolve(ctx context.Context, name string, findURL string) (value path.Path,
 	return resolve(ctx, name, finder)
 }
 
-// Resolve performs an indexer lookup of the name, without reader privacy, and
-// returns the IPFS path identified by the name. The multihash lookup request
-// is sent to the host specified by findURL.
+// ResolveNotPrivate performs an indexer lookup of the name, without reader
+// privacy, and returns the IPFS path identified by the name. The multihash
+// lookup request is sent to the host specified by findURL.
 func ResolveNotPrivate(ctx context.Context, name string, findURL string) (value path.Path, err error) {
 	finder, err := client.New(findURL)
 	if err != nil {
