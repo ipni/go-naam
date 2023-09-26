@@ -221,8 +221,8 @@ github.com/ipfs/go-datastore v0.6.0 h1:JKyz+Gvz1QEZw0LsX1IBn+JFCJQH4SJVFtM4uWU0M
 github.com/ipfs/go-datastore v0.6.0/go.mod h1:rt5M3nNbSO/8q1t4LNkLyUwRs8HupMeN/8O4Vn9YAT8=
 github.com/ipfs/go-detect-race v0.0.1 h1:qX/xay2W3E4Q1U7d9lNs1sU9nvguX0a7319XbyQ6cOk=
 github.com/ipfs/go-detect-race v0.0.1/go.mod h1:8BNT7shDZPo99Q74BpGMK+4D8Mn4j46UU0LZ723meps=
-github.com/ipfs/go-graphsync v0.14.8 h1:NFFHquTNnwPi05tJhdpPj4CJMnqRBLxpZd+IfPRauf4=
-github.com/ipfs/go-graphsync v0.14.8/go.mod h1:qyHjUvHey6EfKUDMQPwCuVkMOurRG3hcjRm+FaVP6bE=
+github.com/ipfs/go-graphsync v0.15.1 h1:7v4VfRQ/8pKzPuE0wHeMaWhKu8D/RlezIrzvGWIBtHQ=
+github.com/ipfs/go-graphsync v0.15.1/go.mod h1:eUIYS0OKkdBbG4vHhfGkY3lZ7h1G5Dlwd+HxTCe18vA=
 github.com/ipfs/go-ipfs-blockstore v1.3.0 h1:m2EXaWgwTzAfsmt5UdJ7Is6l4gJcaM/A12XwJyvYvMM=
 github.com/ipfs/go-ipfs-blocksutil v0.0.1 h1:Eh/H4pc1hsvhzsQoMEP3Bke/aW5P5rVM1IWFJMcGIPQ=
 github.com/ipfs/go-ipfs-chunker v0.0.5 h1:ojCf7HV/m+uS2vhUGWcogIIxiO5ubl5O57Q7NapWLY8=
@@ -266,10 +266,10 @@ github.com/ipld/go-codec-dagpb v1.6.0 h1:9nYazfyu9B1p3NAgfVdpRco3Fs2nFC72DqVsMj6
 github.com/ipld/go-codec-dagpb v1.6.0/go.mod h1:ANzFhfP2uMJxRBr8CE+WQWs5UsNa0pYtmKZ+agnUw9s=
 github.com/ipld/go-ipld-prime v0.21.0 h1:n4JmcpOlPDIxBcY037SVfpd1G+Sj1nKZah0m6QH9C2E=
 github.com/ipld/go-ipld-prime v0.21.0/go.mod h1:3RLqy//ERg/y5oShXXdx5YIp50cFGOanyMctpPjsvxQ=
-github.com/ipni/go-libipni v0.5.3-0.20230922173748-1bf84e608c2e h1:UArwitHABuUbFws1iTp81ykKuwS+q4tJUKn/kF1axTg=
-github.com/ipni/go-libipni v0.5.3-0.20230922173748-1bf84e608c2e/go.mod h1:UnrhEqjVI2Z2HXlaieOBONJmtW557nZkYpB4IIsMD+s=
-github.com/ipni/storetheindex v0.8.2-0.20230922224333-b9d7c2132303 h1:QW4sDh7Gsn59GEccHEqALp1s91QVJG7SyAbTQHcbUGs=
-github.com/ipni/storetheindex v0.8.2-0.20230922224333-b9d7c2132303/go.mod h1:K4AR2bRll46YCWeGvob5foN/Z/kuovPdlUeJKOHVQHo=
+github.com/ipni/go-libipni v0.5.3 h1:OtyQsetnTjIeXFMHcuEFUmCyAlrKEiOfZrv4FpCFj5A=
+github.com/ipni/go-libipni v0.5.3/go.mod h1:lwecr1Bn32BtroPW3Dnb9qzWGQ3IsB4STr1Cs+gS8TA=
+github.com/ipni/storetheindex v0.8.2 h1:aia/GBi6AER/Hd+6bGYWRqITCRr4eRrO0ar5WTKGDKM=
+github.com/ipni/storetheindex v0.8.2/go.mod h1:8FoaaaE82RVpRcBxg3Jb00yjtwTHCQ5q5kV8ZeqnwMQ=
 github.com/jackpal/go-nat-pmp v1.0.2 h1:KzKSgb7qkJvOUTqYl9/Hg/me3pWgBmERKrTGD7BdWus=
 github.com/jackpal/go-nat-pmp v1.0.2/go.mod h1:QPH045xvCAeXUZOxsnwmrtiCoxIr9eob+4orBN1SBKc=
 github.com/jbenet/go-cienv v0.1.0/go.mod h1:TqNnHUmJgXau0nCzC7kXWeotg3J9W34CUv5Djy1+FlA=

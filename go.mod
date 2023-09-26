@@ -7,8 +7,8 @@ require (
 	github.com/ipfs/go-cid v0.4.1
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipld/go-ipld-prime v0.21.0
-	github.com/ipni/go-libipni v0.5.3-0.20230922173748-1bf84e608c2e
-	github.com/ipni/storetheindex v0.8.2-0.20230922224333-b9d7c2132303
+	github.com/ipni/go-libipni v0.5.3
+	github.com/ipni/storetheindex v0.8.2
 	github.com/libp2p/go-libp2p v0.31.0
 	github.com/multiformats/go-multicodec v0.9.0
 	github.com/multiformats/go-multihash v0.2.3
@@ -59,7 +59,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.5 // indirect
 	github.com/huin/goupnp v1.2.0 // indirect
 	github.com/ipfs/go-block-format v0.2.0 // indirect
-	github.com/ipfs/go-graphsync v0.14.8 // indirect
+	github.com/ipfs/go-graphsync v0.15.1 // indirect
 	github.com/ipfs/go-ipfs-pq v0.0.3 // indirect
 	github.com/ipfs/go-ipfs-util v0.0.3 // indirect
 	github.com/ipfs/go-ipld-cbor v0.1.0 // indirect
