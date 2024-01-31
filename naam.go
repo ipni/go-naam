@@ -95,12 +95,12 @@ func Name(peerID peer.ID) string {
 // Resolve performs a reader-privacy-enabled indexer lookup of the name and
 // returns the IPFS path identified by the name. The multihash lookup request
 // is sent to the host specified in findURL.
-func Resolve(ctx context.Context, name string, findURL string) (value path.Path, err error) {
+func Resolve(ctx context.Context, name string, findURL string) (path.Path, error) {
 	finder, err := client.NewDHashClient(
 		client.WithDHStoreURL(findURL),
 		client.WithMetadataOnly(true))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return resolve(ctx, name, finder)
 }
@@ -108,10 +108,10 @@ func Resolve(ctx context.Context, name string, findURL string) (value path.Path,
 // ResolveNotPrivate performs an indexer lookup of the name, without reader
 // privacy, and returns the IPFS path identified by the name. The multihash
 // lookup request is sent to the host specified by findURL.
-func ResolveNotPrivate(ctx context.Context, name string, findURL string) (value path.Path, err error) {
+func ResolveNotPrivate(ctx context.Context, name string, findURL string) (path.Path, error) {
 	finder, err := client.New(findURL)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return resolve(ctx, name, finder)
 }
@@ -132,20 +132,20 @@ func (n *Naam) Name() string {
 // If doing an indexer lookup, the multihash lookup request is sent to the host
 // specified in the WithHttpFindURL option, or if not specified, then in
 // WithHttpIndexerURL.
-func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err error) {
-	p, err := path.ParsePath(name)
+func (n *Naam) Resolve(ctx context.Context, name string) (path.Path, error) {
+	p, err := path.NewPath(name)
 	if err != nil {
 		// Given name is not a valid IPFS path.
-		return "", err
+		return nil, err
 	}
-	if p.IsJustAKey() {
+	if isJustAKey(p) {
 		// IPFS path constructed from name is already resolved; nothing to do.
 		return p, nil
 	}
 
 	pid, err := peerIDFromName(name)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var metadata []byte
@@ -153,20 +153,20 @@ func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err e
 		// This is the ID of this host, so load advertisement from storage.
 		head, err := n.getHeadAdCid(ctx)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if head == cid.Undef {
 			// TODO return a better error?
-			return "", ErrNotFound
+			return nil, ErrNotFound
 		}
 
 		n, err := n.ls.Load(ipld.LinkContext{Ctx: ctx}, cidlink.Link{Cid: head}, schema.AdvertisementPrototype)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		advertisement, err := schema.UnwrapAdvertisement(n)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		metadata = advertisement.Metadata
 	} else {
@@ -180,42 +180,49 @@ func (n *Naam) Resolve(ctx context.Context, name string) (value path.Path, err e
 			finder, err = client.New(n.httpFindURL, client.WithClient(n.httpClient))
 		}
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		// Lookup metadata using indexer.
 		metadata, err = lookupNaamMetadata(ctx, pid, finder)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
 	return metadataToPath(metadata)
 }
 
-func resolve(ctx context.Context, name string, finder client.Finder) (value path.Path, err error) {
-	p, err := path.ParsePath(name)
+func resolve(ctx context.Context, name string, finder client.Finder) (path.Path, error) {
+	p, err := path.NewPath(name)
 	if err != nil {
 		// Given name is not a valid IPFS path.
-		return "", err
+		return nil, err
 	}
-	if p.IsJustAKey() {
+	if isJustAKey(p) {
 		// IPFS path constructed from name is already resolved; nothing to do.
 		return p, nil
 	}
 
 	pid, err := peerIDFromName(name)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Lookup metadata using indexer.
 	metadata, err := lookupNaamMetadata(ctx, pid, finder)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	return metadataToPath(metadata)
+}
+
+// isJustAKey returns true if the path is of the form <key> or /ipfs/<key>, or
+// /ipld/<key>
+func isJustAKey(p path.Path) bool {
+	parts := p.Segments()
+	return len(parts) == 2 && (parts[0] == "ipfs" || parts[0] == "ipld")
 }
 
 func peerIDFromName(name string) (peer.ID, error) {
@@ -227,18 +234,18 @@ func peerIDFromName(name string) (peer.ID, error) {
 	return peer.Decode(spid)
 }
 
-func metadataToPath(metadata []byte) (value path.Path, err error) {
+func metadataToPath(metadata []byte) (path.Path, error) {
 	ipnsRec, err := ipnsFromMetadata(metadata)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	pubk, err := ipnsRec.PubKey()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err = ipns.Validate(ipnsRec, pubk); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	return ipnsRec.Value()
