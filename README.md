@@ -2,9 +2,9 @@
 
 :construction: Experimental.
 
-The Golang implementation of [IPNI NAAM protocol](https://github.com/ipni/specs/pull/4).
+The Golang implementation of [IPNI Naam protocol](https://github.com/ipni/specs/pull/4).
 
-Publish and resolve IPNS records on top of IPNI advertisement change.
+Publish and resolve [IPNS](https://specs.ipfs.tech/ipns/ipns-record/) records on top of IPNI advertisement change.
 
 ## Example
 
