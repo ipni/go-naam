@@ -190,7 +190,7 @@ func (n *Naam) Resolve(ctx context.Context, name string) (path.Path, error) {
 		}
 	}
 
-	return metadataToPath(metadata)
+	return metadataToPath(metadata, name)
 }
 
 func resolve(ctx context.Context, name string, finder client.Finder) (path.Path, error) {
@@ -215,7 +215,7 @@ func resolve(ctx context.Context, name string, finder client.Finder) (path.Path,
 		return nil, err
 	}
 
-	return metadataToPath(metadata)
+	return metadataToPath(metadata, name)
 }
 
 // isJustAKey returns true if the path is of the form <key> or /ipfs/<key>, or
@@ -234,17 +234,24 @@ func peerIDFromName(name string) (peer.ID, error) {
 	return peer.Decode(spid)
 }
 
-func metadataToPath(metadata []byte) (path.Path, error) {
+// metadataToPath extracts the IPNS record from the metadata, validates it, and
+// returns the path contained in the metadata.
+//
+// The record must be signed by the private key that matches the public key
+// that the name was created with. Therefore, it is critical that the revord is
+// validated with the public key from the IPNS name, not from the IPNS record.
+func metadataToPath(metadata []byte, name string) (path.Path, error) {
 	ipnsRec, err := ipnsFromMetadata(metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	pubk, err := ipnsRec.PubKey()
+	ipnsName, err := ipns.NameFromString(name)
 	if err != nil {
 		return nil, err
 	}
-	if err = ipns.Validate(ipnsRec, pubk); err != nil {
+
+	if err = ipns.ValidateWithName(ipnsRec, ipnsName); err != nil {
 		return nil, err
 	}
 
