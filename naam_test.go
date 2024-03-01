@@ -268,14 +268,6 @@ func makeLinkSys(ds datastore.Datastore) *ipld.LinkSystem {
 	return &linkSys
 }
 
-func name(peerID peer.ID) string {
-	return ipns.NamespacePrefix + peerID.String()
-}
-
-func (n *hackNaam) name() string {
-	return name(n.h.ID())
-}
-
 func peerIDFromName(name string) (peer.ID, error) {
 	spid := strings.TrimPrefix(name, ipns.NamespacePrefix)
 	if spid == name {
