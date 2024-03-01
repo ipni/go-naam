@@ -17,6 +17,7 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/announce"
 	"github.com/ipni/go-libipni/announce/httpsender"
+	"github.com/ipni/go-libipni/dagsync"
 	"github.com/ipni/go-libipni/dagsync/ipnisync"
 	"github.com/ipni/go-libipni/find/client"
 	"github.com/ipni/go-libipni/ingest/schema"
@@ -50,6 +51,7 @@ var (
 type Naam struct {
 	*options
 	httpAnnouncer *httpsender.Sender
+	publisher     dagsync.Publisher
 }
 
 // New creates a new Naam instance for publishing IPNS records in an indexer.
@@ -60,10 +62,10 @@ func New(o ...Option) (*Naam, error) {
 	}
 
 	// Create publisher that publishes over http and libptp.
-	pk := opts.h.Peerstore().PrivKey(opts.h.ID())
-	opts.pub, err = ipnisync.NewPublisher(*opts.ls, pk,
+	pk := opts.host.Peerstore().PrivKey(opts.host.ID())
+	pub, err := ipnisync.NewPublisher(*opts.linkSys, pk,
 		ipnisync.WithHTTPListenAddrs(opts.httpListenAddr),
-		ipnisync.WithStreamHost(opts.h),
+		ipnisync.WithStreamHost(opts.host),
 	)
 	if err != nil {
 		return nil, err
@@ -75,7 +77,7 @@ func New(o ...Option) (*Naam, error) {
 	}
 
 	// Create a direct http announcement sender.
-	httpAnnouncer, err := httpsender.New([]*url.URL{indexerURL}, opts.h.ID(),
+	httpAnnouncer, err := httpsender.New([]*url.URL{indexerURL}, opts.host.ID(),
 		httpsender.WithClient(opts.httpClient))
 	if err != nil {
 		return nil, err
@@ -84,6 +86,7 @@ func New(o ...Option) (*Naam, error) {
 	return &Naam{
 		options:       opts,
 		httpAnnouncer: httpAnnouncer,
+		publisher:     pub,
 	}, nil
 }
 
@@ -119,7 +122,7 @@ func ResolveNotPrivate(ctx context.Context, name string, findURL string) (path.P
 // Name returns the key to lookup the IPNS record published by this Naam
 // instance.
 func (n *Naam) Name() string {
-	return Name(n.h.ID())
+	return Name(n.host.ID())
 }
 
 // Resolve returns the IPFS path identified by the specified name.
@@ -149,7 +152,7 @@ func (n *Naam) Resolve(ctx context.Context, name string) (path.Path, error) {
 	}
 
 	var metadata []byte
-	if pid == n.h.ID() {
+	if pid == n.host.ID() {
 		// This is the ID of this host, so load advertisement from storage.
 		head, err := n.getHeadAdCid(ctx)
 		if err != nil {
@@ -160,7 +163,7 @@ func (n *Naam) Resolve(ctx context.Context, name string) (path.Path, error) {
 			return nil, ErrNotFound
 		}
 
-		n, err := n.ls.Load(ipld.LinkContext{Ctx: ctx}, cidlink.Link{Cid: head}, schema.AdvertisementPrototype)
+		n, err := n.linkSys.Load(ipld.LinkContext{Ctx: ctx}, cidlink.Link{Cid: head}, schema.AdvertisementPrototype)
 		if err != nil {
 			return nil, err
 		}
@@ -266,10 +269,7 @@ func metadataToPath(metadata []byte, name string) (path.Path, error) {
 // indexer. The IPNS record is then resolved to the path that was published in
 // the IPNI advertisement.
 func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption) error {
-	opts, err := newPublishOptions(o...)
-	if err != nil {
-		return err
-	}
+	opts := newPublishOptions(o...)
 
 	var prevLink ipld.Link
 	head, err := n.getHeadAdCid(ctx)
@@ -286,8 +286,8 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	}
 	seq := prevHeight + 1
 
-	pid := n.h.ID()
-	pk := n.h.Peerstore().PrivKey(pid)
+	pid := n.host.ID()
+	pk := n.host.Peerstore().PrivKey(pid)
 	ipnsRec, err := ipns.NewRecord(pk, value, seq, opts.eol, opts.ttl, ipns.WithPublicKey(opts.embedPubKey))
 	if err != nil {
 		return err
@@ -305,7 +305,7 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	if err != nil {
 		return err
 	}
-	entriesLink, err := n.ls.Store(ipld.LinkContext{Ctx: ctx}, ls, cn)
+	entriesLink, err := n.linkSys.Store(ipld.LinkContext{Ctx: ctx}, ls, cn)
 	if err != nil {
 		return err
 	}
@@ -330,18 +330,18 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	if err != nil {
 		return err
 	}
-	adLink, err := n.ls.Store(ipld.LinkContext{Ctx: ctx}, ls, adn)
+	adLink, err := n.linkSys.Store(ipld.LinkContext{Ctx: ctx}, ls, adn)
 	if err != nil {
 		return err
 	}
 
 	newHead := adLink.(cidlink.Link).Cid
-	n.pub.SetRoot(newHead)
+	n.publisher.SetRoot(newHead)
 	if err := n.setHeadAdCid(ctx, newHead); err != nil {
 		return err
 	}
 
-	err = announce.Send(ctx, newHead, n.pub.Addrs(), n.httpAnnouncer)
+	err = announce.Send(ctx, newHead, n.publisher.Addrs(), n.httpAnnouncer)
 	if err != nil {
 		return fmt.Errorf("unsuccessful announce: %w", err)
 	}
@@ -349,7 +349,7 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 }
 
 func (n *Naam) adAddrs() []string {
-	pa := n.pub.Addrs()
+	pa := n.publisher.Addrs()
 	adAddrs := make([]string, 0, len(pa))
 	for _, a := range pa {
 		adAddrs = append(adAddrs, a.String())
