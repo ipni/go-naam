@@ -43,6 +43,11 @@ import (
 const (
 	announceURL = "http://localhost:3001"  // indexer ingest URL
 	findURL     = "http://localhost:40080" // dhstore service URL
+	listenAddr  = "127.0.0.1:9876"
+	// multiaddr telling the indexer where to fetch advertisements from.
+	publisherAddr = "/ip4/127.0.0.1/tcp/9876/http"
+	// multiaddr to use as provider address in anvertisements.
+	providerAddr = "/dns4/ipfs.io/tcp/443/https"
 )
 
 func TestNaam(t *testing.T) {
@@ -59,9 +64,11 @@ func TestNaam(t *testing.T) {
 	require.NoError(t, err)
 
 	n, err := naam.New(naam.WithHost(h),
-		naam.WithHttpListenAddr("127.0.0.1"),
-		naam.WithHttpIndexerURL(announceURL),
-		naam.WithHttpFindURL(findURL),
+		naam.WithListenAddr(listenAddr),
+		naam.WithAnnounceURL(announceURL),
+		naam.WithFindURL(findURL),
+		naam.WithPublisherAddrs(publisherAddr),
+		naam.WithProviderAddrs(providerAddr),
 	)
 	require.NoError(t, err)
 

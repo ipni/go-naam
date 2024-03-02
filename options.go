@@ -17,7 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
-const defaultIndexerURL = "https://cid.contact"
+const defaultAnnounceURL = "https://cid.contact"
 
 type (
 	Option  func(*options)
@@ -25,10 +25,12 @@ type (
 		ds             datastore.Datastore
 		host           host.Host
 		httpClient     *http.Client
-		httpFindURL    string
-		httpIndexerURL string
-		httpListenAddr string
+		findURL        string
+		announceURL    string
+		listenAddr     string
 		linkSys        *ipld.LinkSystem
+		providerAddrs  []string
+		publisherAddrs []string
 		readPriv       bool
 	}
 
@@ -42,10 +44,10 @@ type (
 
 func newOptions(o ...Option) (*options, error) {
 	opts := options{
-		httpClient:     http.DefaultClient,
-		httpIndexerURL: defaultIndexerURL,
-		httpListenAddr: "0.0.0.0:8080",
-		readPriv:       true,
+		httpClient:  http.DefaultClient,
+		announceURL: defaultAnnounceURL,
+		listenAddr:  "0.0.0.0:8080",
+		readPriv:    true,
 	}
 	for _, apply := range o {
 		apply(&opts)
@@ -65,8 +67,8 @@ func newOptions(o ...Option) (*options, error) {
 		opts.linkSys = makeLinkSys(opts.ds)
 	}
 
-	if opts.httpFindURL == "" {
-		opts.httpFindURL = opts.httpIndexerURL
+	if opts.findURL == "" {
+		opts.findURL = opts.announceURL
 	}
 
 	return &opts, nil
@@ -114,36 +116,35 @@ func WithHttpClient(c *http.Client) Option {
 	}
 }
 
-// WithHttpFindURL configures the base URL use for lookups. Use this when the
-// lookup URL is different from the ingest URL configured by
-// WithHttpIndexerURL. This may be needed when the lookup URL has a different
-// port or is a dhstore URL.
-func WithHttpFindURL(a string) Option {
+// WithFindURL configures the URL use for lookups. This is the URL of the
+// dhstore that is used for multihash lookup. If not specified the URL
+// configured by WithAnnounceURL is used.
+func WithFindURL(a string) Option {
 	return func(o *options) {
 		if a != "" {
-			o.httpFindURL = a
+			o.findURL = a
 		}
 	}
 }
 
-// WithHttpIndexerURL configures the indexer base URL for sending announce
-// messages to. This URL is also used for metadata lookup. If a different
-// URL is needed for lookup, specify using WithHttpFindURL. If no values
-// are specified, then defaultIndexerURL is used.
-func WithHttpIndexerURL(a string) Option {
+// WithAnnounceURL is the IPNI endpoint to send direct HTTP advertisement
+// announcement messages to. If no values are specified, then the value of
+// defaultAnnounceURL is used.
+func WithAnnounceURL(a string) Option {
 	return func(o *options) {
 		if a != "" {
-			o.httpIndexerURL = a
+			o.announceURL = a
 		}
 	}
 }
 
-// WithHttpListenAddr specifies the listen address of the HTTP server that
-// serves IPNI addresses. If not specified, the default "0.0.0.0:8080" is used.
-func WithHttpListenAddr(a string) Option {
+// WithListenAddr specifies the address:port that the publisher listens on when
+// serving advertisements over HTTP. If not specified, the default
+// "0.0.0.0:8080" is used.
+func WithListenAddr(a string) Option {
 	return func(o *options) {
 		if a != "" {
-			o.httpListenAddr = a
+			o.listenAddr = a
 		}
 	}
 }
@@ -154,11 +155,41 @@ func WithLinkSystem(ls *ipld.LinkSystem) Option {
 	}
 }
 
+// WithPublisherAddrs is the multiaddr that tells IPNI where to fetch
+// advertisements from.
+//
+// This address must be routable from the indexer. If not specified then the
+// publisher listen addresses are used.
+func WithPublisherAddrs(addrs ...string) Option {
+	return func(o *options) {
+		if len(addrs) != 0 {
+			o.publisherAddrs = append(o.publisherAddrs, addrs...)
+		}
+	}
+}
+
 // WithReaderPrivacy enables (true) or disables (false) reader-privacy. This is
 // enabled by default.
 func WithReaderPrivacy(enabled bool) Option {
 	return func(o *options) {
 		o.readPriv = enabled
+	}
+}
+
+// WithProviderAddrs are multiaddrs that get put into advertisements as the
+// provider addresses. If not specified then the publisher addresses are used.
+//
+// When publishing to a public indexer, this should always be set to a public
+// address so that the advertisement is not rejected.
+//
+// These addresses to not have a role in resolving IPNS, but may be used to
+// tell an IPNS clients where to get the content corresponding to the CIR in
+// the IPNS record.
+func WithProviderAddrs(addrs ...string) Option {
+	return func(o *options) {
+		if len(addrs) != 0 {
+			o.providerAddrs = append(o.providerAddrs, addrs...)
+		}
 	}
 }
 
