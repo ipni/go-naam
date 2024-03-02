@@ -21,7 +21,9 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync"
 	"github.com/ipni/go-libipni/find/client"
 	"github.com/ipni/go-libipni/ingest/schema"
+	"github.com/ipni/go-libipni/mautil"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/multiformats/go-varint"
@@ -51,6 +53,7 @@ var (
 type Naam struct {
 	*options
 	httpAnnouncer *httpsender.Sender
+	pubMultiAddrs []multiaddr.Multiaddr
 	publisher     dagsync.Publisher
 }
 
@@ -64,29 +67,55 @@ func New(o ...Option) (*Naam, error) {
 	// Create publisher that publishes over http and libptp.
 	pk := opts.host.Peerstore().PrivKey(opts.host.ID())
 	pub, err := ipnisync.NewPublisher(*opts.linkSys, pk,
-		ipnisync.WithHTTPListenAddrs(opts.httpListenAddr),
+		ipnisync.WithHTTPListenAddrs(opts.listenAddr),
 		ipnisync.WithStreamHost(opts.host),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	indexerURL, err := url.Parse(opts.httpIndexerURL)
+	announceURL, err := url.Parse(opts.announceURL)
 	if err != nil {
 		return nil, err
 	}
 
+	var maddrs []multiaddr.Multiaddr
+	if len(opts.providerAddrs) != 0 {
+		maddrs, err = mautil.StringsToMultiaddrs(opts.providerAddrs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		maddrs = pub.Addrs()
+		opts.providerAddrs = make([]string, len(maddrs))
+	}
+	for i := range maddrs {
+		opts.providerAddrs[i] = maddrs[i].String()
+	}
+
 	// Create a direct http announcement sender.
-	httpAnnouncer, err := httpsender.New([]*url.URL{indexerURL}, opts.host.ID(),
+	httpAnnouncer, err := httpsender.New([]*url.URL{announceURL}, opts.host.ID(),
 		httpsender.WithClient(opts.httpClient))
 	if err != nil {
 		return nil, err
+	}
+
+	var pubAddrs []multiaddr.Multiaddr
+	if len(opts.publisherAddrs) != 0 {
+		pubAddrs, err = mautil.StringsToMultiaddrs(opts.publisherAddrs)
+		if err != nil {
+			return nil, err
+		}
+		opts.publisherAddrs = nil
+	} else {
+		pubAddrs = pub.Addrs()
 	}
 
 	return &Naam{
 		options:       opts,
 		httpAnnouncer: httpAnnouncer,
 		publisher:     pub,
+		pubMultiAddrs: pubAddrs,
 	}, nil
 }
 
@@ -177,10 +206,10 @@ func (n *Naam) Resolve(ctx context.Context, name string) (path.Path, error) {
 		if n.readPriv {
 			finder, err = client.NewDHashClient(
 				client.WithClient(n.httpClient),
-				client.WithDHStoreURL(n.httpFindURL),
+				client.WithDHStoreURL(n.findURL),
 				client.WithMetadataOnly(true))
 		} else {
-			finder, err = client.New(n.httpFindURL, client.WithClient(n.httpClient))
+			finder, err = client.New(n.findURL, client.WithClient(n.httpClient))
 		}
 		if err != nil {
 			return nil, err
@@ -317,7 +346,7 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 	ad := schema.Advertisement{
 		PreviousID: prevLink,
 		Provider:   pid.String(),
-		Addresses:  n.adAddrs(),
+		Addresses:  n.providerAddrs,
 		Entries:    entriesLink,
 		ContextID:  ContextID,
 		Metadata:   metadata,
@@ -341,20 +370,11 @@ func (n *Naam) Publish(ctx context.Context, value path.Path, o ...PublishOption)
 		return err
 	}
 
-	err = announce.Send(ctx, newHead, n.publisher.Addrs(), n.httpAnnouncer)
+	err = announce.Send(ctx, newHead, n.pubMultiAddrs, n.httpAnnouncer)
 	if err != nil {
 		return fmt.Errorf("unsuccessful announce: %w", err)
 	}
 	return nil
-}
-
-func (n *Naam) adAddrs() []string {
-	pa := n.publisher.Addrs()
-	adAddrs := make([]string, 0, len(pa))
-	for _, a := range pa {
-		adAddrs = append(adAddrs, a.String())
-	}
-	return adAddrs
 }
 
 func (n *Naam) setHeadAdCid(ctx context.Context, head cid.Cid) error {
