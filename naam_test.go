@@ -3,6 +3,7 @@ package naam_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
+	testcmd "github.com/ipfs/go-test/cmd"
 	"github.com/ipld/go-ipld-prime"
 	_ "github.com/ipld/go-ipld-prime/codec/dagcbor"
 	"github.com/ipld/go-ipld-prime/datamodel"
@@ -30,7 +32,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-naam"
-	stitest "github.com/ipni/storetheindex/test"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -48,6 +49,9 @@ const (
 	publisherAddr = "/ip4/127.0.0.1/tcp/9876/http"
 	// multiaddr to use as provider address in anvertisements.
 	providerAddr = "/dns4/ipfs.io/tcp/443/https"
+
+	indexerReadyMatch = "Indexer is ready"
+	dhstoreReady      = "Store opened."
 )
 
 func TestNaam(t *testing.T) {
@@ -138,7 +142,7 @@ func hijackPublishNaam(ctx context.Context, ipnsName string) error {
 }
 
 type testEnv struct {
-	e          *stitest.TestIpniRunner
+	e          *testcmd.Runner
 	cmdIndexer *exec.Cmd
 	cmdDhstore *exec.Cmd
 }
@@ -149,7 +153,7 @@ func (te testEnv) Stop() {
 }
 
 func setupTestEnv(t *testing.T, ctx context.Context) testEnv {
-	e := stitest.NewTestIpniRunner(t, ctx, t.TempDir())
+	e := testcmd.NewRunner(t, t.TempDir())
 
 	indexer := filepath.Join(e.Dir, "storetheindex")
 	dhstore := filepath.Join(e.Dir, "dhstore")
@@ -159,33 +163,32 @@ func setupTestEnv(t *testing.T, ctx context.Context) testEnv {
 	require.NoError(t, os.Chdir(e.Dir))
 
 	// install storetheindex
-	e.Run("go", "install", "github.com/ipni/storetheindex@latest")
+	t.Log("installing storetheindex into test environment")
+	e.Run(ctx, "go", "install", "github.com/ipni/storetheindex@latest")
 	// install dhstore
-	e.Run("go", "install", "-tags", "nofdb", "github.com/ipni/dhstore/cmd/dhstore@latest")
+	t.Log("installing dhstore into test environment")
+	e.Run(ctx, "go", "install", "-tags", "nofdb", "github.com/ipni/dhstore/cmd/dhstore@latest")
 
 	require.NoError(t, os.Chdir(cwd))
 
 	// initialize indexer
-	e.Run(indexer, "init", "--pubsub-topic", "/indexer/ingest/testnet", "--no-bootstrap",
+	e.Run(ctx, indexer, "init", "--pubsub-topic", "/indexer/ingest/testnet", "--no-bootstrap",
 		"--store", "dhstore", "--dhstore", "http://127.0.0.1:40080")
 
 	// start dhstore
-	dhstoreReady := stitest.NewStdoutWatcher(stitest.DhstoreReady)
-	cmdDhstore := e.Start(stitest.NewExecution(dhstore, "-storePath", e.Dir, "-providersURL", "http://localhost:3000").WithWatcher(dhstoreReady))
-	select {
-	case <-dhstoreReady.Signal:
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for dhstore to start")
-	}
+	t.Log("starting dhstore")
+	dhstoreReady := testcmd.NewStderrWatcher(dhstoreReady)
+	cmdDhstore := e.Start(ctx, testcmd.Args(dhstore, "-storePath", e.Dir, "-providersURL", "http://localhost:3000"), dhstoreReady)
+	err = dhstoreReady.Wait(ctx)
+
+	require.NoError(t, err, "timed out waiting for dhstore to start")
 
 	// start indexer
-	indexerReady := stitest.NewStdoutWatcher(stitest.IndexerReadyMatch)
-	cmdIndexer := e.Start(stitest.NewExecution(indexer, "daemon").WithWatcher(indexerReady))
-	select {
-	case <-indexerReady.Signal:
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for indexer to start")
-	}
+	t.Log("starting storetheindex")
+	indexerReady := testcmd.NewStdoutWatcher(indexerReadyMatch)
+	cmdIndexer := e.Start(ctx, testcmd.Args(indexer, "daemon"), indexerReady)
+	err = indexerReady.Wait(ctx)
+	require.NoError(t, err, "timed out waiting for indexer to start")
 
 	return testEnv{
 		e:          e,
@@ -393,7 +396,7 @@ func (n *hackNaam) setHeadAdCid(ctx context.Context, head cid.Cid) error {
 func (n *hackNaam) previousHeight(ctx context.Context) (uint64, error) {
 	v, err := n.ds.Get(ctx, height)
 	if err != nil {
-		if err == datastore.ErrNotFound {
+		if errors.Is(err, datastore.ErrNotFound) {
 			return 0, nil
 		}
 		return 0, err
@@ -405,7 +408,7 @@ func (n *hackNaam) previousHeight(ctx context.Context) (uint64, error) {
 func (n *hackNaam) getHeadAdCid(ctx context.Context) (cid.Cid, error) {
 	c, err := n.ds.Get(ctx, headAdCid)
 	if err != nil {
-		if err == datastore.ErrNotFound {
+		if errors.Is(err, datastore.ErrNotFound) {
 			return cid.Undef, nil
 		}
 		return cid.Undef, err
