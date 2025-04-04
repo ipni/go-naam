@@ -23,6 +23,8 @@ Publish and resolve [IPNS](https://specs.ipfs.tech/ipns/ipns-record/) records us
 - The publisher creates an IPNI advertisement that contains the IPNS record data and the IPNS name as a multihash lookup key for that record.
 - The publisher announces the new advertisement to IPNI, and IPNI ingests the advertisement.
 - Each unique IPNS name has its own chain of advertisements. The chain can be optionally kept as a historical record of the IPNS record updates.
+  - The key used to create the IPNS record is the same key used to sign records on the chain. This prevents IPNS records from being published by parties that did not create the IPNS record. In other words, BobProvider can only advertise IPNS records `/ipns/<bob's-key>`, and Bob cannot advertise `/ipns/<alice's-key>`.
+  - A downside to this is that each separate IPNS record requires a separate IPNI advertisement publisher. 
 
 ### Resolving IPNS
 
