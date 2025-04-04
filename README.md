@@ -20,7 +20,7 @@ Publish and resolve [IPNS](https://specs.ipfs.tech/ipns/ipns-record/) records us
 
 - The publisher creates a unique IPNS name to use. This is created from a public key, and the public key can be extracted from the IPNS name.
 - The publisher creates an IPNS record that contains the CID of the object that the IPNS name resolves to. The record is signed using the private key that is associated with the public key used to create the name.
-- The publisher creates an IPNI advertisement that contains the IPNS record data and the IONS name as a multihash lookup key for that record.
+- The publisher creates an IPNI advertisement that contains the IPNS record data and the IPNS name as a multihash lookup key for that record.
 - The publisher announces the new advertisement to IPNI, and IPNI ingests the advertisement.
 - Each unique IPNS name has its own chain of advertisements. The chain can be optionally kept as a historical record of the IPNS record updates.
 
@@ -33,8 +33,8 @@ Publish and resolve [IPNS](https://specs.ipfs.tech/ipns/ipns-record/) records us
 ### Updating IPNS
 
 - The publisher creates a new IPNS record with different data for the IPNS name to resolve to.
-- The new IPNS record is published the same as before and announced to IPNS.
-- Since the context ID and multhash key (IPNS name) are the same as previously, this results in only an update of the IPNS record, so there is no need to remove any previously published records.
+- The new IPNS record is published the same as before and announced to IPNI.
+- Since the context ID and multhash key (IPNS name) are the same as previously, this results in only an update of the IPNS record, so there is no need to remove any previously published records. This means an IPNI removal advertisement is not needed for an update.
 
 ### Removing IPNS
 
