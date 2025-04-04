@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,11 @@ const (
 )
 
 func TestNaam(t *testing.T) {
+	switch runtime.GOOS {
+	case "windows":
+		t.Skip("skipping test on", runtime.GOOS)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 

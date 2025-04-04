@@ -50,6 +50,9 @@ var (
 	height    = datastore.NewKey("height")
 )
 
+// Naam publishes IPNS records to an IPNI indexer. A Naam instance can also
+// resolve IPNS names. Names are looked up in IPNI, or in the local datastore
+// if the name is published by the Naam instance used to resolve the name.
 type Naam struct {
 	*options
 	httpAnnouncer *httpsender.Sender
