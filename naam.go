@@ -272,9 +272,13 @@ func peerIDFromName(name string) (peer.ID, error) {
 // metadataToPath extracts the IPNS record from the metadata, validates it, and
 // returns the path contained in the metadata.
 //
-// The record must be signed by the private key that matches the public key
-// that the name was created with. Therefore, it is critical that the revord is
-// validated with the public key from the IPNS name, not from the IPNS record.
+// If the resolver trusts that the IPNS name is correct, it therefore knows the
+// public key to which the record belongs. The public key from the name (known
+// by the resolver) must match the public key in the IPNS record returned by
+// IPNI, and the record's signature must validate with this key. Otherwise, the
+// record could could have been created by an imposter that signed the IPNS
+// record with the imposter's private key and included the imposter's public
+// key.
 func metadataToPath(metadata []byte, name string) (path.Path, error) {
 	ipnsRec, err := ipnsFromMetadata(metadata)
 	if err != nil {

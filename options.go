@@ -101,7 +101,8 @@ func WithDatastore(ds datastore.Datastore) Option {
 	}
 }
 
-// WithHost supplies a libp2p Host. If not specified a new Host is created.
+// WithHost supplies a libp2p Host. If not specified, a new Host is created.
+// The host's ID is used for signing advertisements published to IPNI.
 func WithHost(h host.Host) Option {
 	return func(o *options) {
 		o.host = h
